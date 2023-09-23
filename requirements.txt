@@ -1,1 +1,8 @@
-fastapi[all]
+openai 
+langchain 
+chromadb
+pypdf2
+pypdf
+tiktoken
+nltk
+tqdm
