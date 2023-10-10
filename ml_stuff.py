@@ -11,8 +11,17 @@ from IPython.display import display, Markdown
 from langchain.text_splitter import SpacyTextSplitter
 
 
-openai.api_key = "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"
+openai.api_key = ""
+
 dir_path = "/Users/vinayak/code/genaihealth_sep23/data"
+
+
+
+all_chunks_seen = []
+all_pages_seen = []
+history = []
+
+# client = chromadb.PersistentClient(path="/path/to/save/to")
 
 
 # PDF loader: extracts text data
@@ -149,11 +158,9 @@ from langchain.prompts import (
 from langchain.chains import LLMChain
 from langchain.memory import ConversationBufferMemory
 
-
 def chat(user_input, vectorstore):
 
-
-    llm = ChatOpenAI(openai_api_key="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")
+    llm = ChatOpenAI(openai_api_key="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")
 
     info = """
     Patient: Mrs Smith
@@ -213,6 +220,82 @@ Finish your output with the following:
 
     return output, pages_seen, chunks_seen
 
+
+def general_chat(user_input, vectorstore):
+
+    global history
+    llm = ChatOpenAI(openai_api_key="")
+
+    info = """
+    Patient: Mrs Smith
+    The patient is to undergo an elective total hip replacement operation, under regional anaesthetic (not general anaesthetic)
+    10 days to go until the operation
+    """
+
+    results_with_scores = get_top_results_with_scores(query=user_input,
+                                    vectorstore=vectorstore,
+                                    k=2, threshold=0.8)
+
+    guideline_info = ""
+    chunks_seen = []
+    pages_seen = []
+    for result, score in results_with_scores:
+        guideline_info += result.page_content + "\n\n"
+        chunks_seen.append(result.metadata['chunk_index'])
+        pages_seen.append(result.metadata['page'])
+
+    system_message = f"""
+You are a helpful assistant, assisting a patient with their elective surgery operation journey.
+You can answer the questions they have regarding the operation using the information provided.
+
+Here is the general information about the patient and operation:
+{info}
+
+Only use this information from the patient information leaflet to answer the patient's question:
+{guideline_info}
+
+Explain in simple words without using any medical jargon.
+
+Finish your output with the following:
+"Do you have any further questions? Is there anything else I can help you with?"
+
+Here is the chat history so far:
+{history}
+"""
+
+
+    prompt = ChatPromptTemplate(
+        messages=[
+            SystemMessagePromptTemplate.from_template(
+                system_message
+            ),
+            # The `variable_name` here is what must align with memory
+            MessagesPlaceholder(variable_name="chat_history"),
+            HumanMessagePromptTemplate.from_template("{question}")
+        ]
+    )
+
+    # Notice that we `return_messages=True` to fit into the MessagesPlaceholder
+    # Notice that `"chat_history"` aligns with the MessagesPlaceholder name.
+    memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+    conversation = LLMChain(
+        llm=llm,
+        prompt=prompt,
+        verbose=False,
+        memory=memory
+    )
+
+    output = conversation({"question": user_input})
+
+    ai_message = output['text']
+
+    history.append(f"Patient Message: {user_input}")
+    history.append(f"Patient Message: {ai_message}")
+
+    history = history[-4:]
+
+    return output, pages_seen, chunks_seen
+
 def preprocess_index_db():
     docs = load_pdfs(dir_path=dir_path)
     all_chunks = chunk_docs(docs, recursive=True)
@@ -240,17 +323,19 @@ def preprocess_index_db():
 
 
 def chat_with_user(vectorstore, msg_ = "Thank you. When can I drive again after my operation?"):
-    all_chunks_seen = []
-    all_pages_seen = []
+    # all_chunks_seen = []
+    # all_pages_seen = []
 
     opening_message = f"""Hello Mrs Smith, your operation is in 20 days.\n
     Here is your exercise for today: https://www.youtube.com/watch?v=B19AsoXg59c&ab_channel=SWLEOCElectiveOrthopaedicSurgeryInformation \n
     Do you have any questions about your operation?"""
 
     print(opening_message)
+    print(history, 'history')
 
     # output, pages_seen, chunks_seen = chat('Thank you. When can I drive again after my operation?')
-    output, pages_seen, chunks_seen = chat(msg_, vectorstore)
+    # output, pages_seen, chunks_seen = chat(msg_, vectorstore)
+    output, pages_seen, chunks_seen = general_chat(msg_, vectorstore)
     print(output['text'])
 
     all_chunks_seen.extend(chunks_seen)
@@ -258,5 +343,11 @@ def chat_with_user(vectorstore, msg_ = "Thank you. When can I drive again after 
     print(f"\nChunks accessed by patient: {all_chunks_seen}")
     print(f"\nPages accessed by patient: {all_pages_seen}")
 
+
+
     return output['text'], all_chunks_seen, all_pages_seen
     
+
+
+def return_seen_chunks():
+    return all_chunks_seen, all_pages_seen
